@@ -90,7 +90,7 @@ namespace ElecticityBot
 
 
                     var isWritten = false;
-                    foreach (var message in messages.Messages)
+                    foreach (var message in messages.Messages.Reverse())
                     {
 
                         if (message is TL.Message && !LastMessagesIds.Contains(message.ID))
