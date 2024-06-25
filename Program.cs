@@ -16,13 +16,13 @@ namespace ElecticityBot
         //private static readonly long SourceChannelId = -1002149421685;
         //   private static readonly long DestinationChannelId = -1002149421685;
         public static string FilenameForLastId = "nameLastId";
-        public static int lastMessageId = 0;
 
-        public static string botToken = Environment.GetEnvironmentVariable("telegramelectricybot_BotToken");
-        public static string channelUsername = Environment.GetEnvironmentVariable("telegramelectricybot_ChannelUsername");
-        public static long SourceChannelId = long.Parse(Environment.GetEnvironmentVariable("telegramelectricybot_SourceChannelId"));
-        public static long DestinationChannelId = long.Parse(Environment.GetEnvironmentVariable("telegramelectricybot_DestinationChannelId"));
 
+        public static string botToken = Environment.GetEnvironmentVariable("telegramelectricybot_BotToken")!;
+        public static string channelUsername = Environment.GetEnvironmentVariable("telegramelectricybot_ChannelUsername")!;
+        public static long SourceChannelId = long.Parse(Environment.GetEnvironmentVariable("telegramelectricybot_SourceChannelId")!);
+        public static long DestinationChannelId = long.Parse(Environment.GetEnvironmentVariable("telegramelectricybot_DestinationChannelId")!);
+        public static List<int> LastMessagesIds = new List<int>();
         static string Config(string what)
         {
             return what switch
@@ -44,7 +44,22 @@ namespace ElecticityBot
 
             if (File.Exists(FilenameForLastId))
             {
-                int.TryParse(File.ReadAllText(FilenameForLastId), out lastMessageId);
+                var content = File.ReadAllText(FilenameForLastId);
+                try
+                {
+
+                    LastMessagesIds = System.Text.Json.JsonSerializer.Deserialize<List<int>>(content);
+                }
+                catch (Exception e)
+                {
+
+                }
+                if (LastMessagesIds == null || LastMessagesIds.Count == 0)
+                {
+                    LastMessagesIds = new List<int> { };
+                    File.Delete(FilenameForLastId);
+                }
+                //int.TryParse(File.ReadAllText(FilenameForLastId), out lastMessageId);
             }
             //using var bot = new WTelegram.Bot(Token, apiId, apiHash, connection);
             using var client = new WTelegram.Client(Config);
@@ -58,7 +73,7 @@ namespace ElecticityBot
                 {
 
                     var resolved = await client.Contacts_ResolveUsername(sourceChannelUsername);
-                    var messages = await client.Messages_GetHistory(resolved, limit: 1);
+                    var messages = await client.Messages_GetHistory(resolved, limit: 5);
                     Console.CancelKeyPress += (sender, eventArgs) =>
                     {
                         eventArgs.Cancel = true;
@@ -73,20 +88,31 @@ namespace ElecticityBot
 
 
 
-                    var message = messages.Messages[0];
 
-
-                    if (message is TL.Message && message.ID > lastMessageId)
+                    var isWritten = false;
+                    foreach (var message in messages.Messages)
                     {
-                        lastMessageId = message.ID;
-                        File.WriteAllText(FilenameForLastId, lastMessageId.ToString());
-                        var messageText = message as TL.Message;
-                        var parsedMessage = GetTimeRangesForShift(messageText.message, "3");
 
-                        string dateString = ExtractDateString(messageText.message);
-                        await client.Messages_SendMessage(resolvedDest, "Orig Message :" + GenerateLink(message.ID), new Random().Next(int.MinValue, int.MaxValue));
-                        var messageForSend = "Виключення  " + dateString + " будуть об : \n" + String.Join(",\n", parsedMessage);
-                        await client.Messages_SendMessage(resolvedDest, messageForSend, new Random().Next(int.MinValue, int.MaxValue));
+                        if (message is TL.Message && !LastMessagesIds.Contains(message.ID))
+                        {
+                            LastMessagesIds.Add(message.ID);
+                            var messageText = message as TL.Message;
+                            if (messageText.message.Contains("Години відсутності електропостачання"))
+                            {
+
+                                var parsedMessage = GetTimeRangesForShift(messageText.message, "3");
+
+                                string dateString = ExtractDateString(messageText.message);
+                                await client.Messages_SendMessage(resolvedDest, "Orig Message :" + GenerateLink(message.ID), new Random().Next(int.MinValue, int.MaxValue));
+                                var messageForSend = "Виключення  " + dateString + " будуть об : \n" + String.Join(",\n", parsedMessage);
+                                await client.Messages_SendMessage(resolvedDest, messageForSend, new Random().Next(int.MinValue, int.MaxValue));
+                            }
+                            isWritten = true;
+                        }
+                    }
+                    if (!isWritten)
+                    {
+                        File.WriteAllText(FilenameForLastId, System.Text.Json.JsonSerializer.Serialize(LastMessagesIds));
                     }
                     await Task.Delay(1000 * 60 * 30);
                 }
@@ -229,8 +255,8 @@ namespace ElecticityBot
             var matches = Regex.Matches(inputText, pattern);
             foreach (Match match in matches)
             {
-                var start = TimeSpan.Parse(match.Groups[1].Value);
-                var end = TimeSpan.Parse(match.Groups[2].Value);
+                var start = TimeSpan.Parse(ConvertTo00(match.Groups[1].Value));
+                var end = TimeSpan.Parse(ConvertTo00(match.Groups[2].Value));
                 timeRanges.Add((start, end));
             }
 
@@ -239,7 +265,10 @@ namespace ElecticityBot
             var result = mergedRanges.Select(range => $"{range.Start:hh\\:mm}-{range.End:hh\\:mm}").ToList();
             return result;
         }
-
+        public static string ConvertTo00(string value)
+        {
+            return value.Replace("24", "00");
+        }
         private static List<(TimeSpan Start, TimeSpan End)> MergeTimeRanges(List<(TimeSpan Start, TimeSpan End)> timeRanges)
         {
             if (timeRanges.Count == 0)
