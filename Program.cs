@@ -1,4 +1,6 @@
 ﻿// See https://aka.ms/new-console-template for more information
+using BotElectricityTelegram.Data;
+using BotElectricityTelegram.SqlLite;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using TL;
@@ -22,7 +24,8 @@ namespace ElecticityBot
         public static string channelUsername = Environment.GetEnvironmentVariable("telegramelectricybot_ChannelUsername")!;
         public static long SourceChannelId = long.Parse(Environment.GetEnvironmentVariable("telegramelectricybot_SourceChannelId")!);
         public static long DestinationChannelId = long.Parse(Environment.GetEnvironmentVariable("telegramelectricybot_DestinationChannelId")!);
-        public static List<int> LastMessagesIds = new List<int>();
+        //public static List<int> LastMessagesIds = new List<int>();
+        public static LastIdsRepository lastIdsRepository = new LastIdsRepository();
         static string Config(string what)
         {
             return what switch
@@ -41,32 +44,35 @@ namespace ElecticityBot
             //using var connection = new Microsoft.Data.Sqlite.SqliteConnection(@"Data Source=WTelegramBot.sqlite");
             //StreamWriter WTelegramLogs = new StreamWriter("WTelegramBot.log", true, Encoding.UTF8) { AutoFlush = true };
             //WTelegram.Helpers.Log = (lvl, str) => WTelegramLogs.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{"TDIWE!"[lvl]}] {str}");
+            lastIdsRepository.CreateMainTable();
 
-            if (File.Exists(FilenameForLastId))
-            {
-                var content = File.ReadAllText(FilenameForLastId);
-                try
-                {
 
-                    LastMessagesIds = System.Text.Json.JsonSerializer.Deserialize<List<int>>(content);
-                }
-                catch (Exception e)
-                {
+            //if (File.Exists(FilenameForLastId))
+            //{
+            //    var content = File.ReadAllText(FilenameForLastId);
+            //    try
+            //    {
 
-                }
-                if (LastMessagesIds == null || LastMessagesIds.Count == 0)
-                {
-                    LastMessagesIds = new List<int> { };
-                    File.Delete(FilenameForLastId);
-                }
-                //int.TryParse(File.ReadAllText(FilenameForLastId), out lastMessageId);
-            }
+            //        LastMessagesIds = System.Text.Json.JsonSerializer.Deserialize<List<int>>(content);
+            //    }
+            //    catch (Exception e)
+            //    {
+
+            //    }
+            //    if (LastMessagesIds == null || LastMessagesIds.Count == 0)
+            //    {
+            //        LastMessagesIds = new List<int> { };
+            //        File.Delete(FilenameForLastId);
+            //    }
+            //    //int.TryParse(File.ReadAllText(FilenameForLastId), out lastMessageId);
+            //}
             //using var bot = new WTelegram.Bot(Token, apiId, apiHash, connection);
             using var client = new WTelegram.Client(Config);
 
             var user = await client.LoginUserIfNeeded();
             var resolvedDest = await client.Contacts_ResolveUsername(destChannelUsername);
             Console.WriteLine("Bot is up and running.");
+
             using (var cts = new CancellationTokenSource())
             {
                 while (!cts.IsCancellationRequested)
@@ -84,18 +90,15 @@ namespace ElecticityBot
                     {
                         cts.Cancel();
                     };
-
-
-
-
-
-                    var isWritten = false;
+                    //var isWritten = false;
                     foreach (var message in messages.Messages.Reverse())
                     {
 
-                        if (message is TL.Message && !LastMessagesIds.Contains(message.ID))
+                        var lastid = lastIdsRepository.SelectLastIdsByMessageId(message.ID);
+                        if (message is TL.Message && lastid == null)
                         {
-                            LastMessagesIds.Add(message.ID);
+
+                            lastIdsRepository.InsertLastIds(new LastIds() { IdMessage = message.ID, Date = message.Date.ToString() });
                             var messageText = message as TL.Message;
                             if (messageText.message.Contains("Години відсутності електропостачання"))
                             {
@@ -106,14 +109,15 @@ namespace ElecticityBot
                                 await client.Messages_SendMessage(resolvedDest, "Orig Message :" + GenerateLink(message.ID), new Random().Next(int.MinValue, int.MaxValue));
                                 var messageForSend = "Виключення  " + dateString + " будуть об : \n" + String.Join(",\n", parsedMessage);
                                 await client.Messages_SendMessage(resolvedDest, messageForSend, new Random().Next(int.MinValue, int.MaxValue));
+
                             }
-                            isWritten = true;
+                            //isWritten = true;
                         }
                     }
-                    if (!isWritten)
-                    {
-                        File.WriteAllText(FilenameForLastId, System.Text.Json.JsonSerializer.Serialize(LastMessagesIds));
-                    }
+                    //if (!isWritten)
+                    //{
+                    //    File.WriteAllText(FilenameForLastId, System.Text.Json.JsonSerializer.Serialize(LastMessagesIds));
+                    //}
                     await Task.Delay(1000 * 60 * 30);
                 }
             }
